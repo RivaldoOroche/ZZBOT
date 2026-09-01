@@ -54,6 +54,9 @@ python3 -m zzbot scan
 # 3. Probar la configuración contra el histórico
 python3 -m zzbot backtest --days 60 --symbols BTCUSDT,ETHUSDT,SOLUSDT
 
+# 3b. Comparar estrategias y temporalidades para saber cuál aguanta
+python3 -m zzbot compare --days 90
+
 # 4. Ejecutar en modo paper (dinero simulado, precios reales)
 python3 -m zzbot run
 
@@ -189,7 +192,7 @@ Regístrala en `zzbot/strategies/__init__.py` y úsala con `strategy.name: mi_es
 ```yaml
 scanner:
   max_markets: 50               # cuántos mercados vigilar a la vez
-  interval: 5m
+  interval: 1h                  # ver "Qué dicen los datos": 5m pierde por comisiones
   min_quote_volume_24h: 20000000   # filtro de liquidez
   max_spread_pct: 0.15
 ```
@@ -230,6 +233,57 @@ Aun así, un backtest **no predice el futuro**. No modela profundidad de libro,
 huecos de precio ni caídas del exchange. Sirve para descartar configuraciones malas
 —y para verificar que tus límites de riesgo se comportan como esperas—, no para
 prometer ganancias.
+
+---
+
+## Qué dicen los datos (no las suposiciones)
+
+Comparativa real sobre **90 días** (junio–septiembre 2026), 8 mercados
+(BTC, ETH, SOL, BNB, XRP, DOGE, LINK, AVAX), con la configuración por defecto
+de riesgo. Reproducible con:
+
+```bash
+python3 -m zzbot compare --days 90
+```
+
+| Temporalidad | Estrategia | Retorno | Drawdown máx | Ops | Acierto | Profit factor | Kill switch |
+|---|---|---:|---:|---:|---:|---:|:--:|
+| 1h | `mean_reversion` | **+2,63%** | 1,09% | 44 | 61,4% | 1,63 | |
+| 4h | `breakout` | **+1,37%** | 3,92% | 69 | 43,5% | 1,12 | |
+| 4h | `mean_reversion` | −1,19% | 1,63% | 9 | 22,2% | 0,42 | |
+| 15m | `mean_reversion` | −3,98% | 6,35% | 97 | 39,2% | 0,63 | |
+| 1h | `breakout` | −6,27% | 9,51% | 182 | 36,8% | 0,78 | |
+| 4h | `trend_momentum` | −8,04% | 12,15% | 150 | 33,3% | 0,71 | |
+| 15m | `breakout` | −13,78% | 15,16% | 259 | 34,4% | 0,57 | **SÍ** |
+| 15m | `trend_momentum` | −13,81% | 14,90% | 139 | 23,0% | 0,35 | **SÍ** |
+| 1h | `trend_momentum` | −13,99% | 14,98% | 191 | 29,3% | 0,58 | **SÍ** |
+
+Cuatro lecturas honestas:
+
+**1. Siete de nueve combinaciones perdieron dinero.** Ese es el resultado normal.
+Si esperabas que cualquier bot bien programado ganara, esta tabla es la respuesta
+más útil de todo el repositorio.
+
+**2. El kill switch funcionó exactamente como se configuró.** Las tres peores
+combinaciones se detuvieron solas cerca del 15% de drawdown, en vez de seguir
+perdiendo. Comparado con el −100% que permite un bot sin límites, esa es toda la
+diferencia. **Los límites son el producto; la estrategia es un detalle.**
+
+**3. Las temporalidades cortas fueron las peores, y no por casualidad.** En 15m se
+opera el doble y se gana menos. Con 0,1% de comisión por lado, cada operación
+empieza ~0,2% en contra sobre un stop del 1,2%: pagas el 17% de tu riesgo en peaje
+antes de que el precio se mueva. Por eso el intervalo por defecto es `1h`, no `5m`.
+
+**4. Lo que ganó aquí puede perder mañana.** `mean_reversion` en 1h ganó porque
+estos 90 días fueron laterales. En una tendencia sostenida, esa misma estrategia
+compra caídas todo el camino hacia abajo. Elegir la fila ganadora de una tabla es
+sobreajuste, no análisis. Compruébalo en varios periodos distintos antes de creerte
+nada.
+
+```bash
+# comparar solo dos estrategias en un periodo distinto
+python3 -m zzbot compare --days 180 --timeframes 1h,4h --strategies mean_reversion,breakout
+```
 
 ---
 

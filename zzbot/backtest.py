@@ -220,8 +220,11 @@ class Backtester:
 
             # 3) Frenos diarios.
             block = risk.daily_block(equity, ts)
-            if not block:
+            hay_cupo = len(portfolio.positions) < self.cfg.risk.max_open_positions
+            if not block and hay_cupo:
                 # 4) Buscar entradas con datos disponibles hasta esta vela inclusive.
+                # Evaluar la estrategia sin cupo libre seria trabajo tirado: el
+                # gestor de riesgo rechazaria cualquier senal resultante.
                 candidates = []
                 for sym, s in series_map.items():
                     if sym in portfolio.positions:
@@ -251,7 +254,7 @@ class Backtester:
                         meta={"score": sig.score},
                     )
                     equity = portfolio.mark_to_market(closes)
-            else:
+            elif block:
                 blocked_days.add(risk.state.day)
 
             portfolio.tick_bars()

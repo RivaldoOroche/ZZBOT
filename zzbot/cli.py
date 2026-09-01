@@ -112,26 +112,37 @@ def cmd_run(args, cfg: Config) -> int:
     return 0
 
 
-def cmd_backtest(args, cfg: Config) -> int:
-    source = BinancePublic(workers=cfg.scanner.workers)
+def _resolve_symbols(args, cfg: Config, source: BinancePublic) -> List[str]:
     if args.symbols:
         symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     else:
         scanner = Scanner(source, cfg.scanner)
         symbols = [m.symbol for m in scanner.build_universe(cfg.execution.quote_asset)]
-    symbols = symbols[: args.max_symbols] if args.max_symbols else symbols
+    return symbols[: args.max_symbols] if args.max_symbols else symbols
 
-    start_ms = int((time.time() - args.days * 86400) * 1000)
-    print(f"\nDescargando {args.days} dias de {cfg.scanner.interval} para {len(symbols)} mercados...")
+
+def _download(source: BinancePublic, symbols: List[str], interval: str, days: int,
+              quiet: bool = False) -> Dict[str, Series]:
+    start_ms = int((time.time() - days * 86400) * 1000)
+    if not quiet:
+        print(f"\nDescargando {days} dias de {interval} para {len(symbols)} mercados...")
     series_map: Dict[str, Series] = {}
     for i, sym in enumerate(symbols, 1):
         try:
-            s = source.fetch_historical(sym, cfg.scanner.interval, start_ms)
+            s = source.fetch_historical(sym, interval, start_ms)
             if len(s) > 0:
                 series_map[sym] = s
-            print(f"  [{i}/{len(symbols)}] {sym}: {len(s)} velas")
+            if not quiet:
+                print(f"  [{i}/{len(symbols)}] {sym}: {len(s)} velas")
         except Exception as exc:  # noqa: BLE001
             print(f"  [{i}/{len(symbols)}] {sym}: error ({exc})")
+    return series_map
+
+
+def cmd_backtest(args, cfg: Config) -> int:
+    source = BinancePublic(workers=cfg.scanner.workers)
+    symbols = _resolve_symbols(args, cfg, source)
+    series_map = _download(source, symbols, cfg.scanner.interval, args.days)
 
     if not series_map:
         print("no se pudo descargar ningun historico")
@@ -188,6 +199,78 @@ def cmd_backtest(args, cfg: Config) -> int:
 
     print("\nRecuerda: un backtest no predice el futuro. Mide si la configuracion")
     print("de riesgo se comporta como esperas, no cuanto vas a ganar.")
+    return 0
+
+
+def cmd_compare(args, cfg: Config) -> int:
+    """Prueba varias estrategias y temporalidades sobre el mismo historico.
+
+    Sirve para responder la unica pregunta que importa antes de arrancar:
+    con MIS limites, ¿que combinacion aguanta y cual se estrella?
+    """
+    timeframes = [t.strip() for t in args.timeframes.split(",") if t.strip()]
+    nombres = [n.strip() for n in args.strategies.split(",") if n.strip()]
+    for n in nombres:
+        if n not in strategies.REGISTRY:
+            print(f"estrategia desconocida: {n}. Disponibles: {sorted(strategies.REGISTRY)}")
+            return 1
+
+    source = BinancePublic(workers=cfg.scanner.workers)
+    symbols = _resolve_symbols(args, cfg, source)
+    logging.getLogger("zzbot.portfolio").setLevel(logging.ERROR)
+    logging.getLogger("zzbot.risk").setLevel(logging.ERROR)
+
+    filas: List[Dict[str, object]] = []
+    for tf in timeframes:
+        print(f"\nDescargando {args.days} dias de {tf} para {len(symbols)} mercados...")
+        data = _download(source, symbols, tf, args.days, quiet=True)
+        if not data:
+            print(f"  sin datos para {tf}")
+            continue
+        velas = len(next(iter(data.values())))
+        print(f"  {len(data)} mercados, {velas} velas por mercado")
+
+        for nombre in nombres:
+            prueba = Config.load(args.config)
+            prueba.scanner.interval = tf
+            prueba.strategy.name = nombre
+            try:
+                r = Backtester(prueba).run(data)
+            except ValueError as exc:
+                print(f"  {tf} {nombre}: {exc}")
+                continue
+            pf = r.profit_factor
+            filas.append({
+                "tf": tf,
+                "estrategia": nombre,
+                "ret%": round(r.total_return_pct, 2),
+                "DD%": round(r.max_drawdown_pct, 2),
+                "ops": len(r.trades),
+                "acierto%": round(r.win_rate, 1),
+                "PF": "inf" if pf == float("inf") else round(pf, 2),
+                "expect": round(r.expectancy, 3),
+                "detenido": "SI" if r.halted_reason else "",
+            })
+
+    if not filas:
+        print("\nno se pudo evaluar ninguna combinacion")
+        return 1
+
+    filas.sort(key=lambda f: f["ret%"], reverse=True)
+    print("\nCOMPARATIVA (ordenada por retorno)")
+    print("-" * 33)
+    _print_table(filas, ["tf", "estrategia", "ret%", "DD%", "ops", "acierto%", "PF", "expect", "detenido"])
+
+    mejor = filas[0]
+    print(f"\n  Mejor combinacion del periodo: {mejor['estrategia']} en {mejor['tf']} "
+          f"({mejor['ret%']}%, drawdown {mejor['DD%']}%).")
+    if all(f["ret%"] <= 0 for f in filas):
+        print("  NINGUNA combinacion gano dinero en este periodo. Eso es informacion")
+        print("  util, no un fallo: significa no operar, no bajar los limites.")
+    print("  'detenido: SI' significa que el kill switch de drawdown actuo. Es el")
+    print("  sistema funcionando, no un error.")
+    print("\n  Ojo: elegir la combinacion ganadora de un periodo concreto es")
+    print("  sobreajuste. Comprueba que aguanta en varios periodos distintos.")
     return 0
 
 
@@ -312,6 +395,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-symbols", type=int, default=10, help="tope de mercados a descargar")
     s.add_argument("--json", help="guardar resultados en este archivo")
     s.set_defaults(func=cmd_backtest)
+
+    s = sub.add_parser("compare", help="comparar estrategias y temporalidades sobre el mismo historico")
+    s.add_argument("--days", type=int, default=90)
+    s.add_argument("--timeframes", default="15m,1h,4h")
+    s.add_argument("--strategies", default="trend_momentum,mean_reversion,breakout")
+    s.add_argument("--symbols", help="lista separada por comas")
+    s.add_argument("--max-symbols", type=int, default=8)
+    s.set_defaults(func=cmd_compare)
 
     s = sub.add_parser("status", help="ver estado guardado y ultimas operaciones")
     s.add_argument("--limit", type=int, default=15)

@@ -108,7 +108,11 @@ class ScannerConfig:
     max_markets: int = 50
     """Cuantos mercados vigilar simultaneamente."""
 
-    interval: str = "5m"
+    interval: str = "1h"
+    """Temporalidad de las velas. En 5m las comisiones se comen la ventaja:
+    con 0.1% por lado, cada operacion arranca ~0.2% en contra sobre un stop
+    del 1.2%. Marcos mas largos operan menos y pagan menos peaje."""
+
     lookback_bars: int = 300
     min_quote_volume_24h: float = 20_000_000.0
     """Filtro de liquidez. Operar mercados ilíquidos es como regalar dinero al spread."""
