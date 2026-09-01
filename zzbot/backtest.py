@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 from .config import Config
-from .models import Candle, ExitReason, Series, Trade, utc_day
+from .models import Candle, ExitReason, Series, Trade, interval_to_ms, utc_day
 from .portfolio import Portfolio
 from .risk import RiskManager
 from .strategies import build as build_strategy
@@ -157,6 +157,7 @@ class Backtester:
             sym: {c.open_time: i for i, c in enumerate(s.candles)} for sym, s in series_map.items()
         }
 
+        interval_ms = interval_to_ms(next(iter(series_map.values())).interval)
         portfolio = Portfolio(cash=self.cfg.initial_equity, execution=self.cfg.execution)
         risk = RiskManager(self.cfg.risk, self.cfg.initial_equity)
         risk.state.day = utc_day(timeline[0])
@@ -181,6 +182,7 @@ class Backtester:
 
             equity = portfolio.mark_to_market(closes)
             risk.sync(equity, ts)
+            portfolio.update_bars_held(ts, interval_ms)
 
             # 1) Gestionar posiciones abiertas contra el rango completo de la vela.
             for pos in list(portfolio.positions.values()):
@@ -257,7 +259,6 @@ class Backtester:
             elif block:
                 blocked_days.add(risk.state.day)
 
-            portfolio.tick_bars()
             equity_curve.append(portfolio.mark_to_market(closes))
             timestamps.append(ts)
 

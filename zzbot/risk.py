@@ -85,7 +85,7 @@ class RiskManager:
 
     def sync(self, equity: float, ts_ms: Optional[int] = None) -> None:
         """Actualiza dia en curso y pico de equity. Llamar al inicio de cada ciclo."""
-        ts_ms = ts_ms or now_ms()
+        ts_ms = now_ms() if ts_ms is None else ts_ms
         today = utc_day(ts_ms)
         if today != self.state.day:
             log.info("nuevo dia UTC %s: se reinician los limites diarios", today)
@@ -115,7 +115,7 @@ class RiskManager:
 
         Un halt no se levanta solo: exige revisar que paso y reiniciar el bot.
         """
-        ts_ms = ts_ms or now_ms()
+        ts_ms = now_ms() if ts_ms is None else ts_ms
         self.sync(equity, ts_ms)
         if self.state.halted:
             return self.state.halt_reason
@@ -151,7 +151,7 @@ class RiskManager:
 
     def daily_block(self, equity: float, ts_ms: Optional[int] = None) -> Optional[str]:
         """Motivo por el que hoy no se abren mas posiciones, o None."""
-        ts_ms = ts_ms or now_ms()
+        ts_ms = now_ms() if ts_ms is None else ts_ms
         self.sync(equity, ts_ms)
 
         # Un limite diario, una vez tocado, manda el resto del dia: no se
@@ -214,7 +214,7 @@ class RiskManager:
         min_notional: float = 0.0,
     ) -> Decision:
         """Aprueba o rechaza una senal, y si la aprueba calcula tamano y niveles."""
-        ts_ms = ts_ms or now_ms()
+        ts_ms = now_ms() if ts_ms is None else ts_ms
 
         halt = self.check_halt(equity, ts_ms)
         if halt:

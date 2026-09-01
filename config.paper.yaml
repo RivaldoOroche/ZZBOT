@@ -1,0 +1,74 @@
+# ---------------------------------------------------------------------------
+# ZZBOT - sesion en papel: mean_reversion en 1h
+#
+# Es la combinacion que mejor aguanto en la comparativa de 90 dias
+# (+2,63%, drawdown 1,09%, PF 1,63). Ojo: gano porque ese periodo fue
+# lateral, que es justo el terreno de la reversion a la media. En una
+# tendencia sostenida esta estrategia compra caidas todo el camino abajo.
+# Por eso corre en papel, y por eso los limites de abajo son estrechos.
+# ---------------------------------------------------------------------------
+
+mode: paper
+initial_equity: 1000.0
+
+# Las velas son de 1h, pero los stops se vigilan contra el precio en vivo.
+# Cada dos minutos es suficiente para eso y suave con el rate limit del
+# exchange: en una vela de 1h el bot mira 30 veces.
+poll_seconds: 120
+
+db_path: zzbot_paper_1h.sqlite
+log_level: INFO
+
+strategy:
+  name: mean_reversion
+  allow_short: false        # spot: no hay cortos reales
+  min_score: 0.55
+
+scanner:
+  interval: 1h
+  max_markets: 40
+  lookback_bars: 300
+  min_quote_volume_24h: 30000000.0   # algo mas exigente que el default
+  max_spread_pct: 0.12
+  top_n_signals: 5
+  workers: 8
+
+risk:
+  # Por operacion
+  stop_loss_pct: 1.5
+  take_profit_pct: 3.0
+  use_atr_stops: true
+  atr_stop_mult: 1.8
+  atr_take_profit_mult: 3.2
+  breakeven_at_pct: 1.0     # con +1% el stop sube a la entrada
+  trailing_stop_pct: 0.0    # la reversion tiene objetivo fijo: la media
+  max_holding_bars: 48      # 48 velas de 1h = 2 dias. Si en 2 dias no
+                            # revirtio, la tesis era falsa.
+  # Tamano
+  risk_per_trade_pct: 0.5
+  max_position_pct: 20.0
+  max_open_positions: 4
+  max_exposure_pct: 60.0
+
+  # Limites del dia
+  max_daily_loss_pct: 2.0
+  daily_profit_target_pct: 4.0
+  max_daily_trades: 12      # en 1h no hay mas de 12 oportunidades reales al dia
+  max_consecutive_losses: 4
+  cooldown_minutes_after_stop: 120
+
+  # Limites globales (apagan el bot)
+  max_total_drawdown_pct: 10.0
+  total_profit_target_pct: 0.0
+  close_positions_on_halt: true
+
+execution:
+  order_type: market
+  taker_fee_pct: 0.10
+  slippage_pct: 0.03
+  min_notional: 10.0
+  quote_asset: USDT
+
+notify:
+  enabled: false
+  notify_on: [open, close, halt]

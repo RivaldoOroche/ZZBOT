@@ -78,7 +78,7 @@ class Portfolio:
         ts_ms: Optional[int] = None,
         meta: Optional[Dict[str, float]] = None,
     ) -> Optional[Position]:
-        ts_ms = ts_ms or now_ms()
+        ts_ms = now_ms() if ts_ms is None else ts_ms
         fill = self._fill_price(price, side, opening=True)
         notional = qty * fill
         fee = self._fee(notional)
@@ -118,7 +118,7 @@ class Portfolio:
         reason: ExitReason,
         ts_ms: Optional[int] = None,
     ) -> Trade:
-        ts_ms = ts_ms or now_ms()
+        ts_ms = now_ms() if ts_ms is None else ts_ms
         fill = self._fill_price(price, position.side, opening=False)
         notional = position.qty * fill
         fee = self._fee(notional)
@@ -157,9 +157,17 @@ class Portfolio:
         )
         return trade
 
-    def tick_bars(self) -> None:
+    def update_bars_held(self, ts_ms: int, interval_ms: int) -> None:
+        """Recalcula cuantas velas lleva abierta cada posicion.
+
+        Se deduce del tiempo transcurrido, no del numero de ciclos ejecutados:
+        el motor puede dar muchos ciclos dentro de una misma vela, y antes
+        `max_holding_bars` significaba 4 dias en backtest y 96 minutos en vivo.
+        """
+        if interval_ms <= 0:
+            return
         for pos in self.positions.values():
-            pos.bars_held += 1
+            pos.bars_held = max(0, (ts_ms - pos.opened_at) // interval_ms)
 
     # ------------------------------------------------------------------
 

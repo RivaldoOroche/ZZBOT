@@ -143,6 +143,20 @@ class TestMotor(unittest.TestCase):
         self.assertEqual(res["senales"], 0)
         self.assertGreaterEqual(res["closed"], 1)
 
+    def test_los_ciclos_no_envejecen_las_posiciones(self):
+        """Regresion: bars_held contaba ciclos, asi que max_holding_bars
+        significaba 4 dias en backtest y 96 minutos en vivo."""
+        eng = self._engine(base_cfg(), fake_universe(drift=0.0015))
+        eng.scanner.build_universe("USDT")
+        eng._market_meta = {m.symbol: m for m in eng.scanner.universe}
+        eng.run_cycle()
+        self.assertTrue(eng.portfolio.positions)
+        for _ in range(5):
+            eng.run_cycle()
+        # Las velas son de 1h (default) y el test dura segundos: cero barras.
+        for pos in eng.portfolio.positions.values():
+            self.assertEqual(pos.bars_held, 0)
+
     def test_el_estado_de_riesgo_persiste(self):
         cfg = base_cfg()
         eng = self._engine(cfg, fake_universe())

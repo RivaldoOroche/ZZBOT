@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from .config import Config
 from .exchanges.base import ExchangeError, MarketDataSource
 from .exchanges.binance import BinancePublic
-from .models import ExitReason, Position, Series, Side, Signal, Trade
+from .models import ExitReason, Position, Series, Side, Signal, Trade, interval_to_ms, now_ms
 from .notify import Notifier
 from .portfolio import Portfolio
 from .risk import RiskManager
@@ -50,6 +50,7 @@ class TradingEngine:
         )
         self._market_meta: Dict[str, object] = {}
         self._series_cache: Dict[str, Series] = {}
+        self._interval_ms = interval_to_ms(cfg.scanner.interval)
         self._running = False
         self._restore()
 
@@ -225,6 +226,10 @@ class TradingEngine:
         prices = self.prices_for_open()
         equity = self.portfolio.mark_to_market(prices)
 
+        # La antiguedad de cada posicion se mide en velas transcurridas, para que
+        # `max_holding_bars` signifique lo mismo aqui que en el backtest.
+        self.portfolio.update_bars_held(now_ms(), self._interval_ms)
+
         # 1) Proteger lo abierto, antes de buscar mas riesgo.
         closed = self.manage_open_positions(prices)
         if closed:
@@ -243,14 +248,12 @@ class TradingEngine:
         # 3) Frenos diarios: se siguen gestionando posiciones, pero no se abren nuevas.
         block = self.risk.daily_block(equity)
         if block:
-            self.portfolio.tick_bars()
             self._persist(equity)
             return {"blocked": block, "equity": equity, "closed": len(closed), "opened": 0}
 
         # 4) Buscar entradas.
         opened = self.try_open(signals, equity, prices)
 
-        self.portfolio.tick_bars()
         equity = self.portfolio.mark_to_market({**prices, **{p.symbol: p.entry_price for p in opened}})
         self._persist(equity)
         return {

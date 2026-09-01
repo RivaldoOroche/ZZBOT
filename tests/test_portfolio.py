@@ -1,12 +1,41 @@
 import unittest
 
 from zzbot.config import ExecutionConfig
-from zzbot.models import ExitReason, Side
+from zzbot.models import ExitReason, Side, interval_to_ms
 from zzbot.portfolio import Portfolio
 
 
 def mk(fees=0.0, slip=0.0):
     return Portfolio(cash=1000.0, execution=ExecutionConfig(taker_fee_pct=fees, slippage_pct=slip))
+
+
+class TestAntiguedad(unittest.TestCase):
+    """`max_holding_bars` debe significar velas, no ciclos del motor."""
+
+    def test_las_barras_se_cuentan_por_tiempo_no_por_ciclos(self):
+        p = mk()
+        hora = interval_to_ms("1h")
+        pos = p.open_position("XUSDT", Side.LONG, 1.0, 100.0, 98.0, 104.0, ts_ms=0)
+        # Mil ciclos dentro de la misma vela no envejecen la posicion.
+        for _ in range(1000):
+            p.update_bars_held(hora - 1, hora)
+        self.assertEqual(pos.bars_held, 0)
+        # Tres horas despues son tres velas, den los ciclos que den.
+        p.update_bars_held(hora * 3, hora)
+        self.assertEqual(pos.bars_held, 3)
+
+    def test_el_mismo_tiempo_da_mas_barras_en_marcos_cortos(self):
+        p = mk()
+        pos = p.open_position("XUSDT", Side.LONG, 1.0, 100.0, 98.0, 104.0, ts_ms=0)
+        cuatro_horas = interval_to_ms("4h")
+        p.update_bars_held(cuatro_horas, interval_to_ms("1h"))
+        self.assertEqual(pos.bars_held, 4)
+        p.update_bars_held(cuatro_horas, cuatro_horas)
+        self.assertEqual(pos.bars_held, 1)
+
+    def test_intervalo_desconocido_falla_pronto(self):
+        with self.assertRaises(ValueError):
+            interval_to_ms("7m")
 
 
 class TestContabilidad(unittest.TestCase):
