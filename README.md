@@ -317,6 +317,64 @@ un ciclo lento podría abrir posiciones nuevas mientras una vieja se desangra.
 
 ---
 
+## Dejarlo corriendo
+
+Hay una config lista para esto: `config.paper.yaml` (mean_reversion en 1h, la
+combinación que mejor aguantó en la comparativa, con límites más estrechos que
+los del default: pérdida diaria 2%, drawdown máximo 10%).
+
+```bash
+python3 -m zzbot -c config.paper.yaml run
+```
+
+Para que sobreviva a cerrar la terminal:
+
+```bash
+nohup python3 -u -m zzbot -c config.paper.yaml run >> paper_1h.log 2>&1 &
+tail -f paper_1h.log            # seguir la actividad
+python3 -m zzbot -c config.paper.yaml status   # estado y operaciones
+```
+
+Como servicio, para que arranque solo tras un reinicio:
+
+```ini
+# /etc/systemd/system/zzbot.service
+[Unit]
+Description=ZZBOT paper trading
+After=network-online.target
+
+[Service]
+Type=simple
+User=TU_USUARIO
+WorkingDirectory=/ruta/a/ZZBOT
+ExecStart=/usr/bin/python3 -u -m zzbot -c config.paper.yaml run
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now zzbot
+journalctl -u zzbot -f
+```
+
+`Restart=on-failure` reinicia si el proceso muere por un error, pero **no**
+cuando el bot se detiene solo por el kill switch: esa parada es una decisión,
+no un fallo, y reiniciarla automáticamente anularía el límite que la provocó.
+
+Dos cosas que conviene saber antes de dejarlo días:
+
+- **Con `mean_reversion` en 1h van a pasar horas sin ninguna operación.** Es lo
+  normal: en la prueba de 90 días hizo 44 operaciones sobre 8 mercados, menos de
+  una al día. Un bot que opera poco no está roto; uno que opera constantemente
+  suele estar pagando comisiones por ruido.
+- **Revísalo cada pocos días, no cada hora.** Lo que importa es el resumen de
+  `status`, no cada operación suelta.
+
+---
+
 ## Persistencia
 
 El estado vive en SQLite (`zzbot_state.sqlite`): operaciones cerradas, posiciones
