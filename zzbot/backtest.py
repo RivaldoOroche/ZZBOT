@@ -18,12 +18,11 @@ from __future__ import annotations
 import logging
 import math
 import statistics
-import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List
 
 from .config import Config
-from .models import Candle, ExitReason, Series, Side, Trade, utc_day
+from .models import Candle, ExitReason, Series, Trade, utc_day
 from .portfolio import Portfolio
 from .risk import RiskManager
 from .strategies import build as build_strategy

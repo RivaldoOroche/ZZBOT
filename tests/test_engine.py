@@ -108,6 +108,41 @@ class TestMotor(unittest.TestCase):
             places=6,
         )
 
+    def test_las_velas_de_las_posiciones_abiertas_se_refrescan(self):
+        """Regresion: si el escaneo omitiera los simbolos abiertos, la salida
+        por invalidacion de senal (signal_flip) nunca se dispararia en vivo."""
+        eng = self._engine(base_cfg(), fake_universe(drift=0.0015))
+        eng.scanner.build_universe("USDT")
+        eng._market_meta = {m.symbol: m for m in eng.scanner.universe}
+        eng.run_cycle()
+        abiertas = set(eng.portfolio.positions)
+        self.assertTrue(abiertas)
+        eng.run_cycle()
+        for sym in abiertas:
+            self.assertIn(sym, eng._series_cache)
+            self.assertGreater(len(eng._series_cache[sym]), 0)
+
+    def test_el_escaneo_caido_no_impide_gestionar_lo_abierto(self):
+        """Si el exchange falla al escanear, los stops siguen vigilandose."""
+        from zzbot.exchanges.base import ExchangeError
+
+        eng = self._engine(base_cfg(), fake_universe(drift=0.0015))
+        eng.scanner.build_universe("USDT")
+        eng._market_meta = {m.symbol: m for m in eng.scanner.universe}
+        eng.run_cycle()
+        self.assertTrue(eng.portfolio.positions)
+
+        def scan_roto(*a, **kw):
+            raise ExchangeError("caida simulada del exchange")
+
+        eng.scanner.scan = scan_roto
+        # Forzamos el stop de todas las posiciones abiertas.
+        for pos in eng.portfolio.positions.values():
+            pos.stop_price = pos.entry_price * 10
+        res = eng.run_cycle()
+        self.assertEqual(res["senales"], 0)
+        self.assertGreaterEqual(res["closed"], 1)
+
     def test_el_estado_de_riesgo_persiste(self):
         cfg = base_cfg()
         eng = self._engine(cfg, fake_universe())

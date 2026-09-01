@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from .config import Config
 from .exchanges.base import ExchangeError, MarketDataSource
 from .exchanges.binance import BinancePublic
-from .models import ExitReason, Position, Series, Side, Signal, Trade, now_ms
+from .models import ExitReason, Position, Series, Side, Signal, Trade
 from .notify import Notifier
 from .portfolio import Portfolio
 from .risk import RiskManager
@@ -49,6 +49,7 @@ class TradingEngine:
             cfg.risk, cfg.initial_equity, state=self.store.load_risk_state() if self.store else None
         )
         self._market_meta: Dict[str, object] = {}
+        self._series_cache: Dict[str, Series] = {}
         self._running = False
         self._restore()
 
@@ -118,10 +119,10 @@ class TradingEngine:
         return closed
 
     def _series_for(self, symbol: str) -> Series:
-        cached = self._series_cache.get(symbol) if hasattr(self, "_series_cache") else None
-        if cached is not None:
-            return cached
-        return Series(symbol=symbol, interval=self.cfg.scanner.interval, candles=[])
+        """Velas del ciclo actual. Vacia si el escaneo no las trajo."""
+        return self._series_cache.get(
+            symbol, Series(symbol=symbol, interval=self.cfg.scanner.interval, candles=[])
+        )
 
     def _close(self, pos: Position, price: float, reason: ExitReason) -> Trade:
         trade = self.portfolio.close_position(pos, price, reason)
@@ -145,7 +146,8 @@ class TradingEngine:
 
     # ------------------------------------------------------------------
 
-    def try_open(self, signals: List[Signal], equity: float) -> List[Position]:
+    def try_open(self, signals: List[Signal], equity: float,
+                 prices: Optional[Dict[str, float]] = None) -> List[Position]:
         opened: List[Position] = []
         for sig in signals:
             if sig.score < self.cfg.strategy.min_score:
@@ -190,22 +192,42 @@ class TradingEngine:
                 f"{sig.reason}\nstop {pos.stop_price:.6g} | tp {pos.take_profit_price:.6g}\n"
                 f"riesgo {decision.risk_amount:.2f} ({self.cfg.risk.risk_per_trade_pct}% del equity)",
             )
-            # El equity efectivo baja al comprometer capital, asi que los limites
-            # de la siguiente senal se evaluan con la foto actualizada.
-            equity = self.portfolio.mark_to_market({sig.symbol: sig.price})
+            # El equity efectivo cambia al comprometer capital, asi que los
+            # limites de la siguiente senal se evaluan con la foto actualizada.
+            # Se valora con TODOS los precios conocidos, no solo el de esta
+            # senal: si no, el resto de posiciones contarian a precio de entrada.
+            marks = dict(prices or {})
+            marks[sig.symbol] = sig.price
+            equity = self.portfolio.mark_to_market(marks)
         return opened
 
     # ------------------------------------------------------------------
 
     def run_cycle(self) -> Dict[str, object]:
-        """Un ciclo completo. Es la unidad que el bucle repite."""
+        """Un ciclo completo. Es la unidad que el bucle repite.
+
+        El escaneo va primero para tener velas frescas de TODO el universo,
+        incluidas las posiciones abiertas: sin ellas la estrategia no puede
+        decidir si su tesis sigue siendo valida. Las decisiones de salida usan
+        esas velas, pero los precios de ejecucion vienen del ticker, que es
+        mas reciente que el cierre de la ultima vela.
+        """
+        signals: List[Signal] = []
+        scanned = 0
+        try:
+            result = self.scanner.scan(self.strategy)
+            self._series_cache = result.series
+            signals, scanned = result.signals, result.scanned
+        except ExchangeError as exc:
+            # Sin escaneo no hay entradas nuevas, pero lo abierto se gestiona igual.
+            log.error("fallo el escaneo, este ciclo solo gestiona lo abierto: %s", exc)
+
         prices = self.prices_for_open()
         equity = self.portfolio.mark_to_market(prices)
 
-        # 1) Proteger lo abierto.
+        # 1) Proteger lo abierto, antes de buscar mas riesgo.
         closed = self.manage_open_positions(prices)
         if closed:
-            prices = self.prices_for_open()
             equity = self.portfolio.mark_to_market(prices)
 
         # 2) Frenos duros.
@@ -221,21 +243,20 @@ class TradingEngine:
         # 3) Frenos diarios: se siguen gestionando posiciones, pero no se abren nuevas.
         block = self.risk.daily_block(equity)
         if block:
+            self.portfolio.tick_bars()
             self._persist(equity)
             return {"blocked": block, "equity": equity, "closed": len(closed), "opened": 0}
 
         # 4) Buscar entradas.
-        result = self.scanner.scan(self.strategy, skip=list(self.portfolio.positions.keys()))
-        self._series_cache = result.series
-        opened = self.try_open(result.signals, equity)
+        opened = self.try_open(signals, equity, prices)
 
         self.portfolio.tick_bars()
-        equity = self.portfolio.mark_to_market(self.prices_for_open() or prices)
+        equity = self.portfolio.mark_to_market({**prices, **{p.symbol: p.entry_price for p in opened}})
         self._persist(equity)
         return {
             "equity": equity,
-            "escaneados": result.scanned,
-            "senales": len(result.signals),
+            "escaneados": scanned,
+            "senales": len(signals),
             "opened": len(opened),
             "closed": len(closed),
             "abiertas": len(self.portfolio.positions),

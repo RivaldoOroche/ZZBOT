@@ -7,7 +7,7 @@ o cambiar de paper a live no toca ni la estrategia ni el gestor de riesgo.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from ..models import Market, Position, Series, Side
 

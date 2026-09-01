@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from .. import indicators as ind
-from ..models import Position, Series, Side, Signal
+from ..models import Series, Side, Signal
 from .base import Strategy
 
 

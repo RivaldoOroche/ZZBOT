@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from .config import RiskConfig
@@ -295,7 +295,7 @@ class RiskManager:
             # El limite porcentual manda: es el numero que el usuario configuro
             # como perdida maxima aceptable por operacion.
             stop_dist = min(atr_stop, pct_stop)
-            tp_dist = min(atr_tp, pct_tp) if atr_tp < pct_tp else pct_tp
+            tp_dist = min(atr_tp, pct_tp)
             # Mantener el ratio beneficio/riesgo que implica la config.
             ratio = self.cfg.take_profit_pct / self.cfg.stop_loss_pct
             tp_dist = max(tp_dist, stop_dist * ratio)
