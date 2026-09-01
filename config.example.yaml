@@ -1,0 +1,95 @@
+# ---------------------------------------------------------------------------
+# ZZBOT - configuracion de ejemplo
+#
+# Copia este archivo a config.yaml y ajusta los valores. Todo lo que aparece
+# aqui son los valores por defecto: puedes borrar lo que no quieras cambiar.
+#
+# Cualquier campo se puede sobreescribir con variables de entorno:
+#   ZZBOT_RISK__MAX_DAILY_LOSS_PCT=1.5
+#   ZZBOT_STRATEGY__NAME=breakout
+# ---------------------------------------------------------------------------
+
+# paper = precios reales, dinero simulado (por defecto y recomendado)
+# live  = dinero real, requiere ademas dry_run_confirm: true
+mode: paper
+
+exchange: binance
+initial_equity: 1000.0     # capital de partida, en la moneda quote (USDT)
+poll_seconds: 30           # cada cuanto se ejecuta un ciclo completo
+dry_run_confirm: false     # seguro contra arrancar en live sin querer
+db_path: zzbot_state.sqlite
+log_level: INFO
+
+# ===========================================================================
+# RIESGO: aqui vive lo que pediste, el rango maximo de perdida y de ganancia
+# ===========================================================================
+risk:
+  # --- Por operacion ---
+  stop_loss_pct: 1.2            # perdida maxima en UNA operacion (% del precio)
+  take_profit_pct: 2.4          # ganancia objetivo en UNA operacion
+  use_atr_stops: true           # adapta stop/tp a la volatilidad real del activo
+  atr_stop_mult: 1.8            #   ...pero stop_loss_pct sigue siendo el techo
+  atr_take_profit_mult: 3.2
+  trailing_stop_pct: 0.0        # >0 activa el trailing (ej: 0.8)
+  breakeven_at_pct: 0.0         # >0 mueve el stop a la entrada con esa ganancia
+  max_holding_bars: 96          # cierre por tiempo, para no quedar atrapado
+
+  # --- Tamano de posicion ---
+  risk_per_trade_pct: 0.5       # % del capital que se arriesga por operacion
+  max_position_pct: 20.0        # tope al valor de una sola posicion
+  max_open_positions: 5
+  max_exposure_pct: 60.0        # tope a la suma de todo lo abierto
+  max_positions_per_symbol: 1
+
+  # --- Limites del dia ---
+  max_daily_loss_pct: 3.0       # <<< RANGO MAXIMO DE PERDIDA DIARIO
+  daily_profit_target_pct: 5.0  # <<< GANANCIA MAXIMA DIARIA (para y protege)
+  max_daily_trades: 40
+  max_consecutive_losses: 5
+  cooldown_minutes_after_stop: 60
+
+  # --- Limites globales (apagan el bot) ---
+  max_total_drawdown_pct: 15.0  # <<< PERDIDA MAXIMA TOTAL: kill switch
+  total_profit_target_pct: 0.0  # <<< GANANCIA MAXIMA TOTAL (0 = sin limite)
+  close_positions_on_halt: true
+
+# ===========================================================================
+execution:
+  order_type: market            # market | limit
+  limit_offset_pct: 0.05
+  taker_fee_pct: 0.10           # ajustalo a tus comisiones reales
+  maker_fee_pct: 0.02
+  slippage_pct: 0.03            # deslizamiento asumido en simulacion
+  min_notional: 10.0
+  quote_asset: USDT
+
+# ===========================================================================
+scanner:
+  max_markets: 50               # cuantos mercados vigilar a la vez
+  interval: 5m                  # 1m 5m 15m 1h 4h 1d
+  lookback_bars: 300
+  min_quote_volume_24h: 20000000.0   # filtro de liquidez
+  max_spread_pct: 0.15
+  include: []                   # si pones simbolos, SOLO se operan esos
+  exclude:
+    - USDCUSDT
+    - FDUSDUSDT
+    - TUSDUSDT
+  exclude_leveraged: true
+  workers: 8
+  top_n_signals: 5
+
+# ===========================================================================
+strategy:
+  name: trend_momentum          # trend_momentum | mean_reversion | breakout
+  allow_short: false            # el spot no permite cortos reales
+  min_score: 0.55               # confianza minima para operar una senal
+  params: {}                    # sobreescribe parametros de la estrategia
+
+# ===========================================================================
+notify:
+  enabled: false
+  webhook_url: ""
+  telegram_bot_token: ""
+  telegram_chat_id: ""
+  notify_on: [open, close, halt]
