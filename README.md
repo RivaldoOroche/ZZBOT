@@ -330,10 +330,17 @@ python3 -m zzbot -c config.paper.yaml run
 Para que sobreviva a cerrar la terminal:
 
 ```bash
-nohup python3 -u -m zzbot -c config.paper.yaml run >> paper_1h.log 2>&1 &
+setsid nohup python3 -u -m zzbot -c config.paper.yaml run >> paper_1h.log 2>&1 < /dev/null &
 tail -f paper_1h.log            # seguir la actividad
 python3 -m zzbot -c config.paper.yaml status   # estado y operaciones
 ```
+
+**No lo lances con `| tee`.** Es tentador para ver la salida y guardarla a la vez,
+pero encadena el bot a un proceso que no controlas: si el `tee` muere (cierras la
+terminal, se reinicia la máquina, se cae la sesión), el bot queda escribiendo a una
+tubería sin lector y pierde todo el registro, o muere en el siguiente log. `setsid`
+más redirección directa al archivo no depende de nadie: comprobado a base de
+perder doce horas de registro así.
 
 Como servicio, para que arranque solo tras un reinicio:
 

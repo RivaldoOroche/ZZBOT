@@ -9,3 +9,4 @@ venv/
 *.log
 backtest_*.json
 .DS_Store
+paper_1h.log*
